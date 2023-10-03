@@ -451,6 +451,7 @@ def truncnorm(support_pair, *, loc, scale):
 class PriorsPlayML:
     def __init__(self, log2_N = 5):
         l = widgets.Layout(width='600px')
+        s = widgets.SliderStyle(description_width='200px')
         self.log2_N = log2_N
         self.params = ['mu_N', 'L_half', 'elasticity']
         self.days =  ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
@@ -469,18 +470,16 @@ class PriorsPlayML:
         ## Sliders
         # Single model
         self.nominal_sliders = {
-            'mu_N': widgets.IntSlider(min=750, max=1250, step=10, description='Arrival rate:', value=self.nominal['mu_N'], continuous_update=False, layout=l),
-            'L_half': widgets.IntSlider(min=20, max=80, step=1, description='Reference price:', value=self.nominal['L_half'], continuous_update=False, layout=l),
-            'elasticity': widgets.FloatSlider(min=-2.5, max=-0.5, step=0.1, description='Reference elasticity:', value=self.nominal['elasticity'], continuous_update=False, layout=l)
+            'mu_N': widgets.IntSlider(min=750, max=1250, step=10, description='Arrival rate:', value=self.nominal['mu_N'], continuous_update=False, style=s, layout=l),
+            'L_half': widgets.IntSlider(min=20, max=80, step=1, description='Reference price:', value=self.nominal['L_half'], continuous_update=False, style=s, layout=l),
+            'elasticity': widgets.FloatSlider(min=-2.5, max=-0.5, step=0.1, description='Reference elasticity:', value=self.nominal['elasticity'], continuous_update=False, style=s, layout=l)
         }
         # Prior uncertainty
         self.sigma_sliders = {
-            'mu_N': widgets.IntSlider(min=1, max=100, step=1, description='Arrival rate uncertainty:', value=self.sigma['mu_N'], continuous_update=False, layout=l),
-            'L_half': widgets.FloatSlider(min=0.5, max=20, step=0.5, description='Ref. price uncertainty:', value=self.sigma['L_half'], continuous_update=False, layout=l),
-            'elasticity': widgets.FloatSlider(min=0.01, max=0.5, step=0.01, description='Ref. elasticity uncertainty:', value=self.sigma['elasticity'], continuous_update=False, layout=l)
+            'mu_N': widgets.IntSlider(min=1, max=100, step=1, description='Arrival rate uncertainty:', value=self.sigma['mu_N'], continuous_update=False, style=s, layout=l),
+            'L_half': widgets.FloatSlider(min=0.5, max=20, step=0.5, description='Ref. price uncertainty:', value=self.sigma['L_half'], continuous_update=False, style=s, layout=l),
+            'elasticity': widgets.FloatSlider(min=0.01, max=0.5, step=0.01, description='Ref. elasticity uncertainty:', value=self.sigma['elasticity'], continuous_update=False, style=s, layout=l)
         }
-        # At price
-        self.price_slider = widgets.IntSlider(min=1, max=100, step=1, description='Set price:', value=self.nominal['L_half'], continuous_update=False, layout=l)
         # Data prices
         self.data_sliders = {d: widgets.IntSlider(min=1, max=100, step=1, description=f'{d}: ', value=self.nominal['L_half'], continuous_update=False, layout=l) for d in self.days}        
         # Learn button
