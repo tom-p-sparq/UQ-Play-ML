@@ -8,6 +8,8 @@ import matplotlib.pyplot as plt
 import wquantiles
 import ipywidgets as widgets
 
+plt.ioff()
+
 def decaying_sigma(x):
     return 1 / (1 + np.exp(x))
 
