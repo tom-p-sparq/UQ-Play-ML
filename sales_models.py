@@ -143,6 +143,8 @@ class SalesModel:
         axs[1,1].set_title('Random realised revenue')
         axs[1,1].set_xlabel('price')
         
+        plt.tight_layout()
+        
         return fig
 
 class SalesModelDistribution:
@@ -805,14 +807,14 @@ class PriorsPlayML:
         axs[0].set_title('MLE parameters relative to truth')
         axs[0].set_ylabel('Multiple of true parameter value')
         
-        axs[2].plot(self.days, [m.revmax_price() for m in self.the_MLEs], label='estimated optimal price', color='red')
-        axs[2].hlines(self.the_true_model.revmax_price(), 0, 6, label='true optimal price', color='black', linestyles='dotted')
-        axs[2].set_title('MLE optimal prices relative to truth')
+        axs[2].plot(self.days, [m.revmax_price() for m in self.the_MLEs], label='price recommendation', color='red')
+        axs[2].hlines(self.the_true_model.revmax_price(), 0, 6, label='optimal price', color='black', linestyles='dotted')
+        axs[2].set_title('Price recommendations vs optimality')
         axs[2].legend()
         axs[2].set_ylabel('price')
         
         axs[1].plot(self.days, [100*(1 - (self.the_cost_fun(d)[0](m.parameters())/self.the_cost_fun(d)[0](self.the_true_model.parameters()))) for (d, m) in zip(range(1,8), self.the_MLEs)])
-        axs[1].set_title('Improved fits to data using MLE versus true parameters')
+        axs[1].set_title('Improved fits to data from MLE vs true parameters')
         axs[1].set_ylabel('Percentage improvement in cost function')
         return fig
     
