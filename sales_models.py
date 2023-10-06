@@ -8,8 +8,6 @@ import matplotlib.pyplot as plt
 import wquantiles
 import ipywidgets as widgets
 
-plt.ioff()
-
 def decaying_sigma(x):
     return 1 / (1 + np.exp(x))
 
@@ -60,17 +58,20 @@ class SalesModel:
         d = self.sales_distribution(price)
         return d.ppf(1 - alpha)
     
-    def log_likelihood(self, price, sales):
-        return sum(self.sales_distribution(price).logpmf(sales))
+    def log_likelihoods(self, prices, sales):
+        return np.array([self.sales_distribution(L).logpmf(S) for (L, S) in zip(prices, sales)])
     
-    def grad_log_likelihood(self, price, sales):
-        p_i = self.purchase_probability(price)
-        residuals = sales - self.expected_sales(price)
-        return np.array([
-            sum(residuals)/self.mu_N,
-            self.alpha() * sum(price*(1-p_i)*residuals) / self.L_half,
-            2 * sum(((price/self.L_half) - 1) * (1 - p_i) * residuals),
-        ])
+    def log_likelihood(self, prices, sales):
+        return sum(self.log_likelihoods(prices, sales))
+    
+    #def grad_log_likelihood(self, price, sales):
+    #    p_i = self.purchase_probability(price)
+    #    residuals = sales - self.expected_sales(price)
+    #    return np.array([
+    #        sum(residuals)/self.mu_N,
+    #        self.alpha() * sum(price*(1-p_i)*residuals) / self.L_half,
+    #        2 * sum(((price/self.L_half) - 1) * (1 - p_i) * residuals),
+    #    ])
     
     # revenue numbers are random
     def expected_revenue(self, price):
@@ -105,7 +106,7 @@ class SalesModel:
         min_revenue = self.min_revenue(prices, alpha=0.05)
         max_revenue = self.max_revenue(prices, alpha=0.05)
         
-        
+        plt.ioff()
         fig, axs = plt.subplots(2,2)
         fig.set_size_inches(10,8)
         
@@ -463,11 +464,11 @@ class PriorsPlayML:
         # means
         self.nominal = {'mu_N': 1000, 'L_half': 50, 'elasticity': -1.5}
         # stds
-        self.sigma = {'mu_N': 50, 'L_half': 10, 'elasticity': 0.2}
+        self.sigma = {'mu_N': 50, 'L_half': 10, 'elasticity': 0.3}
         # supports of truncated prior
         self.supports = {'mu_N': (800, 1200), 'L_half': (0, 100), 'elasticity': (-3, -0.1)}
         # Parameter values for the data generating process
-        self.true = {'mu_N': 1100, 'L_half': 60, 'elasticity': -1.2}
+        self.true = {'mu_N': 1100, 'L_half': 60, 'elasticity': -2}
         
         ## Sliders
         # Single model
@@ -522,6 +523,7 @@ class PriorsPlayML:
         self.posterior_predictive = widgets.Output()
         self.posterior_revmax = widgets.Output()
         self.view_button = widgets.Output()
+        self.price_strategy = widgets.Output()
         # Initialise
         self.true_revmax = widgets.HTML(value=self.report_revmax('true'))
         self.nominal_predictive.append_display_data(self.the_nominal_model.show())
@@ -536,6 +538,7 @@ class PriorsPlayML:
         self.posterior_revmax.append_display_data(self.the_sample.show_revmax_price_histogram(self.the_true_model))
         self.view_button.append_display_data(self.btn)
         self.upcoming_data = widgets.HTML(value=self.report_upcoming_data())
+        self.price_strategy.append_display_data(self.do_pricing_fig())
         
         ## Observers
         # Single model
@@ -572,29 +575,28 @@ class PriorsPlayML:
             self.the_true_model.sales_distribution(self.data_sliders[d].value).rvs(random_state=np.prod([ord(c) for c in d])), # random sales at that price
         ) for d in self.days}
     
-    def the_cost_fun(self, n_days=7):
-        prices = np.array([self.the_data[d][0] for d in self.days[:n_days]])
-        sales = np.array([self.the_data[d][1] for d in self.days[:n_days]])
-        def _cost_fun(theta):
-            mu_N, L_half, elasticity = theta
-            m = SalesModel(mu_N=mu_N, L_half=L_half, elasticity=elasticity)
-            return -1 * m.log_likelihood(prices, sales)
-        def _grad_fun(theta):
-            mu_N, L_half, elasticity = theta
-            m = SalesModel(mu_N=mu_N, L_half=L_half, elasticity=elasticity)
-            return -1 * m.grad_log_likelihood(prices, sales)
-        return _cost_fun, _grad_fun
+    def the_prices(self):
+        return np.array([self.the_data[d][0] for d in self.days])
     
+    def the_sales(self):
+        return np.array([self.the_data[d][1] for d in self.days])
     
+    def cost_vector_function(self, theta):
+        prices = self.the_prices()
+        sales = self.the_sales()
+        mu_N, L_half, elasticity = theta
+        m = SalesModel(mu_N=mu_N, L_half=L_half, elasticity=elasticity)
+        return -1 * m.log_likelihoods(prices, sales).cumsum()
+        
     def MLEs(self):
         x0 = [self.nominal[p] for p in self.params]
         mle_models = []
-        for n_days in range(1, 8):
-            f, g = self.the_cost_fun(n_days)
-            sol = minimize(f, x0, method='Nelder-Mead', jac=g, bounds=[self.supports[p] for p in self.params])
+        for n_days in range(7):
+            f = lambda x: self.cost_vector_function(x)[n_days]
+            xmin = minimize(f, x0, bounds=[self.supports[p] for p in self.params]).x
             #print(sol.message)
-            x0 = sol.x
-            mle_models.append(SalesModel(mu_N = x0[0], L_half = x0[1], elasticity = x0[2]))
+            x0 = copy.copy(xmin)
+            mle_models.append(SalesModel(mu_N = xmin[0], L_half = xmin[1], elasticity = xmin[2]))
         return mle_models
     
     def learn_posteriors(self):
@@ -633,7 +635,9 @@ class PriorsPlayML:
             #self.nominal_revmax.clear_output(wait=True)
             setattr(self.the_nominal_model, field_name, change.new)
             with self.nominal_predictive:
-                display(self.the_nominal_model.show())
+                fig = self.the_nominal_model.show()
+                display(fig)
+                plt.close(fig)
             self.nominal_revmax.value = self.report_revmax('nominal')
             return
         return _handler
@@ -648,12 +652,17 @@ class PriorsPlayML:
             self.the_sample = self.sample()
             self.tomorrow_idx = 0
             with self.prior_parameters:
-                display(self.the_prior.show()[0])
+                fig, axs = self.the_prior.show()
+                display(fig)
+                plt.close(fig)
             with self.prior_revmax:
-                display(self.the_sample.show_revmax_price_histogram())
+                fig = self.the_sample.show_revmax_price_histogram()
+                display(fig)
+                plt.close(fig)
             with self.prior_predictive:
-                display(self.the_sample.show(self.prior_predictive_selector.value))
-
+                fig = self.the_sample.show(self.prior_predictive_selector.value)
+                display(fig)
+                plt.close(fig)
             self.set_posterior_to_prior()
             return
         return _handler
@@ -663,17 +672,28 @@ class PriorsPlayML:
         self.posterior_predictive.clear_output(wait=True)
         self.posterior_revmax.clear_output(wait=True)
         self.view_button.clear_output(wait=True)
+        self.price_strategy.clear_output(wait=True)
         # Update the prior
         with self.posterior_parameters:
-            display(self.the_sample.show_posterior_histograms(self.the_prior, self.the_true_model)[0])
+            fig, axs = self.the_sample.show_posterior_histograms(self.the_prior, self.the_true_model)
+            display(fig)
+            plt.close(fig)
         # Update the revmax distribution (deterministic map of the prior)
         with self.posterior_revmax:
-            display(self.the_sample.show_revmax_price_histogram(self.the_true_model))
+            fig = self.the_sample.show_revmax_price_histogram(self.the_true_model)
+            display(fig)
+            plt.close(fig)
         # Update the predictive distribution
         with self.posterior_predictive:
-            display(self.the_sample.show(self.posterior_predictive_selector.value, self.the_true_model))
+            fig = self.the_sample.show(self.posterior_predictive_selector.value, self.the_true_model)
+            display(fig)
+            plt.close(fig)
         with self.view_button:
             display(self.btn)
+        with self.price_strategy:
+            fig = self.do_pricing_fig()
+            display(fig)
+            plt.close(fig)
         self.upcoming_data.value = self.report_upcoming_data()
 
         return
@@ -689,9 +709,13 @@ class PriorsPlayML:
             self.upcoming_data.value = self.report_upcoming_data()
             self.the_MLEs = self.MLEs()
             with self.data_fig:
-                display(self.do_data_fig())
+                fig = self.do_data_fig()
+                display(fig)
+                plt.close(fig)
             with self.MLE_comparison:
-                display(self.do_MLE_fig())
+                fig = self.do_MLE_fig()
+                display(fig)
+                plt.close(fig)
             return
         return _handler
     
@@ -700,17 +724,27 @@ class PriorsPlayML:
             self.posterior_parameters.clear_output(wait=True)
             self.posterior_revmax.clear_output(wait=True)
             self.posterior_predictive.clear_output(wait=True)
+            self.price_strategy.clear_output(wait=True)
 
             self.step_posterior(self.days[self.tomorrow_idx])
             self.tomorrow_idx += 1
             
             with self.posterior_parameters:
-                display(self.the_sample.show_posterior_histograms(self.the_prior, self.the_true_model)[0])
+                fig, axs = self.the_sample.show_posterior_histograms(self.the_prior, self.the_true_model)
+                display(fig)
+                plt.close(fig)
             with self.posterior_revmax:
-                display(self.the_sample.show_revmax_price_histogram(self.the_true_model))
+                fig = self.the_sample.show_revmax_price_histogram(self.the_true_model)
+                display(fig)
+                plt.close(fig)
             with self.posterior_predictive:
-                display(self.the_sample.show(self.posterior_predictive_selector.value, self.the_true_model))
-            
+                fig = self.the_sample.show(self.posterior_predictive_selector.value, self.the_true_model)
+                display(fig)
+                plt.close(fig)      
+            with self.price_strategy:
+                fig = self.do_pricing_fig()
+                display(fig)
+                plt.close(fig)
             if self.tomorrow_idx==7:
                 self.view_button.clear_output(wait=True)
                 with self.view_button:
@@ -733,7 +767,9 @@ class PriorsPlayML:
             true_model = None if prior else self.the_true_model
             out_widget.clear_output(wait=True)
             with out_widget:
-                display(self.the_sample.show(change.new, true_model))
+                fig = self.the_sample.show(change.new, true_model)
+                display(fig)
+                plt.close(fig)
             return
         return _handler
     
@@ -813,10 +849,41 @@ class PriorsPlayML:
         axs[2].legend()
         axs[2].set_ylabel('price')
         
-        axs[1].plot(self.days, [100*(1 - (self.the_cost_fun(d)[0](m.parameters())/self.the_cost_fun(d)[0](self.the_true_model.parameters()))) for (d, m) in zip(range(1,8), self.the_MLEs)])
+        true_fits = self.cost_vector_function(self.the_true_model.parameters())
+        mle_fits = np.array([self.cost_vector_function(m.parameters()) for m in self.the_MLEs]).diagonal()
+        axs[1].plot(self.days, [100*(1 - (f_mle/f_true)) for f_mle, f_true in zip(mle_fits, true_fits)])
         axs[1].set_title('Improved fits to data from MLE vs true parameters')
         axs[1].set_ylabel('Percentage improvement in cost function')
         return fig
     
     def visualise_MLEs(self):
         return self.MLE_comparison
+        
+    def do_pricing_fig(self):
+        M = self.the_true_model
+        dist_posterior = stats.gaussian_kde([m.revmax_price() for m in self.the_sample.models])
+        
+        p_opt = M.revmax_price()
+        p_modal = minimize(lambda P: -dist_posterior.logpdf(P), self.nominal['L_half']).x[0]
+        ps_posterior = dist_posterior.resample(256, seed=0)
+        p_MLE = self.the_MLEs[self.tomorrow_idx-1].revmax_price() if self.tomorrow_idx>0 else float('nan')
+
+        rev_opt = M.expected_revenue(p_opt)
+        rev_modal = M.expected_revenue(p_modal)
+        rev_posterior = M.expected_revenue(ps_posterior).mean()
+        rev_MLE = M.expected_revenue(p_MLE) if p_MLE else float('nan')
+        
+        fig = plt.figure()
+        plt.bar([f'True: £{p_opt:.2f}', f'MLE: £{p_MLE:.2f}', f'Modal: £{p_modal:.2f}', 'Random posterior'], [rev_opt, rev_MLE, rev_modal, rev_posterior],
+               alpha=0.3,
+               color=['black', 'red', 'purple', 'purple'])
+        plt.gca().set_ylabel('expected revenue')
+        ttl = f'Prices set on {self.days[self.tomorrow_idx-1]}' if self.tomorrow_idx>0 else 'Prices before data'
+        plt.title(ttl)
+        return fig
+    
+    def visualise_price_strategy(self):
+        return widgets.HBox([
+            self.price_strategy,
+            widgets.VBox([self.upcoming_data, self.view_button]),
+        ])
