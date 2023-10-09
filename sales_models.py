@@ -86,6 +86,26 @@ class SalesModel:
     def max_revenue(self, price, alpha=0.01):
         return price * self.max_sales(price, alpha)
     
+    # profit numbers are random
+    def expected_profit(self, price, cost):
+        return (price - cost) * self.expected_sales(price)
+    
+    def std_profit(self, price, cost):
+        return (price - cost) * self.std_sales(price)
+    
+    def min_profit(self, price, cost, alpha=0.01):
+        return (price - cost) * self.min_sales(price, alpha)
+    
+    def max_profit(self, price, cost, alpha=0.01):
+        return (price - cost) * self.max_sales(price, alpha)
+    
+    def pass_on_cost_delta(self, price, cost, delta):
+        baseline = self.expected_profit(price, cost)
+        absorbed = self.expected_profit(price, cost+delta)
+        passed = self.expected_profit(price+delta, cost+delta)
+        benefit = passed - absorbed
+        return benefit
+        
     def show(self):
         prices = np.arange(100)
         revmax_price = self.revmax_price()
@@ -271,13 +291,43 @@ class SalesModelSample:
         max_Esales = self.max_Esales(price, alpha)
         return price*max_Esales
     
+    def expected_Eprofit(self, price, cost):
+        expected_Esales = self.expected_Esales(price)
+        return (price - cost)*expected_Esales
+    
+    def min_Eprofit(self, price, cost, alpha=0.01):
+        min_Esales = self.min_Esales(price, alpha)
+        return (price-cost)*min_Esales
+    
+    def max_Eprofit(self, price, cost, alpha=0.01):
+        max_Esales = self.max_Esales(price, alpha)
+        return (price-cost)*max_Esales
+    
+    def pass_on_cost_delta(self, price, cost, delta):
+        return np.array([m.pass_on_cost_delta(price, cost, delta) for m in self.models])
+    
+    def decide_pass_on_cost_delta(self, price, cost, delta, threshold=0):
+        benefits = self.pass_on_cost_delta(price, cost, delta)
+        decisions = benefits>threshold
+        E_decision = self._integrate_sample(decisions)
+    
+    def show_pass_on_cost_delta(self, price, cost, delta, true_model=None):
+        benefits = self.pass_on_cost_delta(price, cost, delta)
+        wts = np.exp(self.log_weights)
+        fig = plt.figure()
+        ax = plt.gca()
+        plt.hist(benefits, weights=wts, density=True, color='purple', alpha=0.3, bins=25)
+        ax.set_xlabel('benefit')
+        #ax.set_xlim((0, 100))
+        ax.set_title('Uncertain benefit of passing cost increase')
+        ax.set_ylabel('probability')
+        plt.tick_params(left=False, labelleft=False)
+        if true_model:
+            ax.vlines(true_model.pass_on_cost_delta(price, cost, delta), *ax.get_ylim(), color='black', linestyles='dotted', label='true')
+        return fig
+        
     def revmax_prices(self):
         return np.array([m.revmax_price() for m in self.models])
-    
-    def expected_elasticity_balance_price(self):
-        f = lambda L: self.expected_elasticity(L)+1
-        root = fsolve(f, self.revmax_prices().mean())
-        return root[0]
     
     def show(self, variable, true_model=None):
         prices = np.arange(101, step=2)
